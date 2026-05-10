@@ -1,0 +1,30 @@
+groups:
+  - name: healops-alerts
+
+    rules:
+
+      - alert: NodeDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node is down"
+          description: "{{ $labels.instance }} unreachable"
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "{{ $labels.instance }} CPU usage > 80%"
+
+      - alert: HealOpsAgentDown
+        expr: up{job="healops-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HealOps agent down"

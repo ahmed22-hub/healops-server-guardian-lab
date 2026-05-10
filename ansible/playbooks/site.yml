@@ -1,0 +1,19 @@
+---
+- name: Configure common packages on all VMs
+  hosts: all
+  become: true
+  roles:
+    - /vagrant/ansible/roles/common
+
+- name: Configure monitoring control VM
+  hosts: control
+  become: true
+  roles:
+    - /vagrant/ansible/roles/control
+
+- name: Configure monitored nodes
+  hosts: nodes
+  become: true
+  roles:
+    - /vagrant/ansible/roles/node
+    - /vagrant/ansible/roles/promtail

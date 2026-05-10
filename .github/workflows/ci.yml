@@ -1,0 +1,50 @@
+name: HealOps CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose -f compose/control/docker-compose.yml config
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck ansible
+
+      - name: Run ShellCheck
+        run: |
+          find scripts -name "*.sh" -print0 | xargs -0 -r shellcheck
+
+      - name: Check Ansible syntax
+        run: |
+          ansible-playbook --syntax-check ansible/playbooks/site.yml
+
+      - name: Validate YAML files
+        run: |
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          files = list(Path(".").rglob("*.yml")) + list(Path(".").rglob("*.yaml"))
+
+          for file in files:
+              with open(file, "r", encoding="utf-8") as f:
+                  yaml.safe_load(f)
+
+          print("All YAML files are valid")
+          PY
+
+      - name: Check Python syntax
+        run: |
+          python3 -m compileall healops

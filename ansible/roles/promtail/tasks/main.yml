@@ -1,0 +1,113 @@
+---
+- name: Create promtail directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/promtail
+    - /var/lib/promtail
+
+- name: Install unzip
+  apt:
+    name: unzip
+    state: present
+
+- name: Download promtail
+  get_url:
+    url: https://github.com/grafana/loki/releases/download/v2.9.8/promtail-linux-amd64.zip
+    dest: /tmp/promtail-linux-amd64.zip
+    mode: "0644"
+
+- name: Extract promtail
+  unarchive:
+    src: /tmp/promtail-linux-amd64.zip
+    dest: /opt/promtail
+    remote_src: true
+    creates: /opt/promtail/promtail-linux-amd64
+
+- name: Make promtail executable
+  file:
+    path: /opt/promtail/promtail-linux-amd64
+    mode: "0755"
+
+- name: Create promtail config
+  copy:
+    dest: /opt/promtail/promtail.yml
+    mode: "0644"
+    content: |
+      server:
+        http_listen_port: 9080
+        grpc_listen_port: 0
+
+      positions:
+        filename: /var/lib/promtail/positions.yaml
+
+      clients:
+        - url: http://192.168.56.10:3100/loki/api/v1/push
+
+      scrape_configs:
+        - job_name: healops-agent
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: healops-agent
+                node: {{ inventory_hostname }}
+                __path__: /var/log/healops-agent/*.jsonl
+
+        - job_name: nginx-access
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: nginx-access
+                node: {{ inventory_hostname }}
+                __path__: /var/log/nginx/access.log
+
+        - job_name: nginx-error
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: nginx-error
+                node: {{ inventory_hostname }}
+                __path__: /var/log/nginx/error.log
+
+        - job_name: ssh-auth
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: ssh-auth
+                node: {{ inventory_hostname }}
+                __path__: /var/log/auth.log
+
+- name: Create promtail systemd service
+  copy:
+    dest: /etc/systemd/system/promtail.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Promtail Log Collector
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/opt/promtail/promtail-linux-amd64 -config.file=/opt/promtail/promtail.yml
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Enable and start promtail
+  systemd:
+    name: promtail
+    enabled: true
+    state: restarted

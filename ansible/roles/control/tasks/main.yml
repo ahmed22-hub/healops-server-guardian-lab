@@ -1,0 +1,25 @@
+---
+- name: Check Docker is installed
+  command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Docker only if missing
+  apt:
+    name:
+      - docker.io
+      - docker-compose-plugin
+    state: present
+  when: docker_check.rc != 0
+
+- name: Enable docker
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Start monitoring stack
+  command: docker compose up -d
+  args:
+    chdir: /vagrant/compose/control

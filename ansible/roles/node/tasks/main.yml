@@ -1,0 +1,111 @@
+---
+- name: Check Docker is installed
+  command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: false
+
+- name: Install node packages only if Docker missing
+  apt:
+    name:
+      - nginx
+      - docker.io
+      - docker-compose-plugin
+    state: present
+  when: docker_check.rc != 0
+
+- name: Install nginx separately if Docker already exists
+  apt:
+    name:
+      - nginx
+    state: present
+  when: docker_check.rc == 0
+- name: Enable nginx
+  systemd:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Enable docker
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Create HealOps directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/healops/bin
+    - /var/log/healops-agent
+
+- name: Create Python virtualenv
+  command: python3 -m venv /opt/healops/venv
+  args:
+    creates: /opt/healops/venv/bin/python
+
+- name: Install Python dependencies
+  pip:
+    name:
+      - psutil
+      - requests
+    virtualenv: /opt/healops/venv
+
+- name: Copy HealOps agent
+  copy:
+    src: /vagrant/healops/agent.py
+    dest: /opt/healops/bin/healops-agent.py
+    mode: "0755"
+    remote_src: true
+
+- name: Copy email alerts module
+  copy:
+    src: /vagrant/healops/email_alerts.py
+    dest: /opt/healops/bin/email_alerts.py
+    mode: "0755"
+    remote_src: true
+
+- name: Create HealOps agent systemd service
+  copy:
+    dest: /etc/systemd/system/healops-agent.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=HealOps Server Guardian Agent
+      After=network-online.target docker.service nginx.service
+      Wants=network-online.target docker.service
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/healops/bin
+      ExecStart=/opt/healops/venv/bin/python /opt/healops/bin/healops-agent.py
+      Restart=always
+      RestartSec=3
+      Environment=NODE_NAME={{ inventory_hostname }}
+      Environment=CONTROL_API=http://192.168.56.10:5000/incident
+      Environment=CHECK_INTERVAL=15
+      Environment=AUTO_FIX=true
+      Environment=BLOCK_IPS=true
+      Environment=TELEGRAM_BOT_TOKEN=
+      Environment=TELEGRAM_CHAT_ID=
+      Environment=SMTP_SERVER=smtp.gmail.com
+      Environment=SMTP_PORT=587
+      Environment=SMTP_USERNAME=
+      Environment=SMTP_PASSWORD=
+      Environment=EMAIL_FROM=
+      Environment=EMAIL_TO=
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Enable and start HealOps agent
+  systemd:
+    name: healops-agent
+    enabled: true
+    state: restarted
