@@ -3,17 +3,17 @@
   hosts: all
   become: true
   roles:
-    - /vagrant/ansible/roles/common
+    - common
 
 - name: Configure monitoring control VM
   hosts: control
   become: true
   roles:
-    - /vagrant/ansible/roles/control
+    - control
 
 - name: Configure monitored nodes
   hosts: nodes
   become: true
   roles:
-    - /vagrant/ansible/roles/node
-    - /vagrant/ansible/roles/promtail
+    - node
+    - promtail
