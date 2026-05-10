@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-"""HealOps Server Guardian Agent.
-Monitors Linux service health, Docker container state, resource pressure,
-SSH brute-force signs and risky listening ports. It can auto-remediate safe
-DevOps failures and send incidents to the control VM.
-"""
+"""HealOps Server Guardian Agent."""
+
 import datetime as dt
 import json
 import os
@@ -16,7 +13,16 @@ from pathlib import Path
 
 import psutil
 import requests
+
+try:
+    from healops.anomaly import detect_spike
+    from healops.prometheus_client import get_cpu_usage
+except ImportError:
+    from anomaly import detect_spike
+    from prometheus_client import get_cpu_usage
+
 from email_alerts import send_email_alert
+
 
 NODE_NAME = os.getenv("NODE_NAME", socket.gethostname())
 CONTROL_API = os.getenv("CONTROL_API", "http://192.168.56.10:5000/incident")
@@ -237,6 +243,44 @@ def check_suspicious_ports():
             )
 
 
+def check_anomalies():
+    try:
+        cpu_metrics = get_cpu_usage()
+    except Exception as exc:
+        incident(
+            "anomaly_engine_error",
+            "medium",
+            f"Failed to query Prometheus: {exc}",
+            "no action",
+        )
+        return
+
+    baseline = [20, 21, 22, 20, 19, 21, 20, 22, 19, 20]
+
+    for metric in cpu_metrics:
+        instance = metric.get("metric", {}).get("instance", "unknown")
+        current_cpu = float(metric["value"][1])
+
+        result = detect_spike(current_cpu, baseline)
+
+        if result.is_anomaly:
+            incident(
+                "cpu_anomaly",
+                result.level,
+                f"CPU anomaly detected on {instance}: {current_cpu:.2f}%",
+                "alert only",
+                {
+                    "instance": instance,
+                    "current_cpu": round(current_cpu, 2),
+                    "anomaly_score": result.score,
+                    "anomaly_level": result.level,
+                    "baseline_mean": result.baseline_mean,
+                    "baseline_std": result.baseline_std,
+                    "reason": result.reason,
+                },
+            )
+
+
 def main():
     print(
         f"HealOps agent started on {NODE_NAME}; "
@@ -253,6 +297,7 @@ def main():
             check_resources()
             check_ssh_failures()
             check_suspicious_ports()
+            check_anomalies()
         except Exception as exc:
             incident("agent_error", "medium", f"Agent error: {exc}", "no action")
 
